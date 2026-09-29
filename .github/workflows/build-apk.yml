@@ -1,4 +1,4 @@
-name: Build Aegis OSINT APK
+name: Build TraceScope OSINT Pro APK
 
 on:
   workflow_dispatch:
@@ -11,9 +11,9 @@ permissions:
 
 jobs:
   build:
-    name: Test and Build Android APK
+    name: Test and Build TraceScope APK
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
 
     steps:
       - name: Checkout repository
@@ -25,36 +25,30 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Gradle
+      - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
 
-      - name: Extract Aegis source
+      - name: Extract TraceScope source
         id: extract
         shell: bash
         run: |
-          set -e
-
-          ZIP_FILE="$(find . -maxdepth 1 -type f -name 'Aegis-OSINT-Mobile-v1.0.0-Source.zip' -print -quit)"
-
+          set -euo pipefail
+          ZIP_FILE="$(find . -maxdepth 1 -type f -name 'TraceScope-OSINT-Pro-v1.0.1-Source.zip' -print -quit)"
           if [ -z "$ZIP_FILE" ]; then
-            echo "Aegis source ZIP not found."
+            echo "TraceScope source ZIP not found."
             exit 1
           fi
-
           rm -rf extracted
           mkdir -p extracted
-
           unzip -q "$ZIP_FILE" -d extracted
-
-          PROJECT_DIR="$(find extracted -mindepth 1 -maxdepth 1 -type d -name 'Aegis-OSINT-Mobile-v1.0.0' -print -quit)"
-
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "Android project directory not found."
+          SETTINGS_FILE="$(find extracted -type f -name 'settings.gradle.kts' -print -quit)"
+          if [ -z "$SETTINGS_FILE" ]; then
+            echo "Android project settings.gradle.kts not found in ZIP."
             exit 1
           fi
-
+          PROJECT_DIR="$(dirname "$SETTINGS_FILE")"
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
           echo "Project directory: $PROJECT_DIR"
 
@@ -64,25 +58,34 @@ jobs:
           gradle wrapper --gradle-version 8.9 --distribution-type bin
           chmod +x gradlew
 
-      - name: Run tests
+      - name: Run unit tests
         working-directory: ${{ steps.extract.outputs.project_dir }}
-        run: |
-          ./gradlew --no-daemon testDebugUnitTest
+        run: ./gradlew --no-daemon --stacktrace testDebugUnitTest
 
-      - name: Run Android Lint
+      - name: Run Android lint report
+        continue-on-error: true
         working-directory: ${{ steps.extract.outputs.project_dir }}
-        run: |
-          ./gradlew --no-daemon lintDebug
+        run: ./gradlew --no-daemon --stacktrace lintDebug
+
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TraceScope-OSINT-Pro-Lint-Report
+          path: |
+            ${{ steps.extract.outputs.project_dir }}/app/build/reports/lint-results-debug.html
+            ${{ steps.extract.outputs.project_dir }}/app/build/reports/lint-results-debug.txt
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Build Debug APK
         working-directory: ${{ steps.extract.outputs.project_dir }}
-        run: |
-          ./gradlew --no-daemon assembleDebug
+        run: ./gradlew --no-daemon --stacktrace assembleDebug
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Aegis-OSINT-Mobile-v1.0.0-APK
+          name: TraceScope-OSINT-Pro-v1.0.1-APK
           path: ${{ steps.extract.outputs.project_dir }}/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
